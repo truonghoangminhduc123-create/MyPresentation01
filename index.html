@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>·</title>
+<style>
+  *,*::before,*::after { margin:0; padding:0; box-sizing:border-box; }
+  html,body { width:100%; height:100%; overflow:hidden; background:#15171a; }
+  body { font-family: system-ui, -apple-system, sans-serif; -webkit-font-smoothing:antialiased; -webkit-tap-highlight-color: transparent; -webkit-user-select:none; user-select:none; }
+
+  /* ===== LOADING (spinner only, no text) ===== */
+  #loading { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; background:#15171a; z-index:50; }
+  #loading.hide { display:none; }
+  .spinner {
+    width:clamp(48px,9vw,66px); height:clamp(48px,9vw,66px);
+    border:5px solid rgba(255,255,255,0.12);
+    border-top-color:#fff;
+    border-radius:50%;
+    animation: spin 0.9s linear infinite;
+  }
+  #loading.err .spinner { border-top-color:#e25c5c; animation-duration:1.6s; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ===== READY (exactly ONE button: fullscreen) ===== */
+  #ready { position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:#15171a; z-index:40; }
+  #ready.show { display:flex; }
+  #fs-btn {
+    width:clamp(96px,17vw,138px); height:clamp(96px,17vw,138px);
+    border-radius:50%; border:none; background:#fff; color:#15171a;
+    cursor:pointer; display:flex; align-items:center; justify-content:center;
+    box-shadow:0 10px 38px rgba(0,0,0,0.55);
+    transition: transform .14s ease;
+  }
+  #fs-btn:hover { transform: scale(1.07); }
+  #fs-btn:active { transform: scale(0.95); }
+  #fs-btn svg { width:52%; height:52%; }
+
+  /* ===== STAGE (presentation) ===== */
+  #stage { position:fixed; inset:0; display:none; flex-direction:column; background:#000; z-index:30; }
+  #stage.show { display:flex; }
+  #canvas-wrap {
+    flex:1 1 auto; min-height:0; min-width:0;
+    display:flex; align-items:center; justify-content:center;
+    padding:14px;
+    touch-action:none;
+  }
+  #pdf-canvas { max-width:100%; max-height:100%; background:#fff; box-shadow:0 0 28px rgba(0,0,0,0.55); }
+
+  /* exit (top-right) */
+  #exit-btn {
+    position:absolute; top:calc(12px + env(safe-area-inset-top)); right:14px; z-index:35;
+    width:clamp(42px,8vw,52px); height:clamp(42px,8vw,52px);
+  }
+
+  /* bottom controls: first / prev / indicator / next / last */
+  #controls {
+    flex:0 0 auto;
+    display:flex; align-items:center; justify-content:center;
+    gap:clamp(8px,2vw,16px);
+    padding:12px 14px calc(14px + env(safe-area-inset-bottom));
+  }
+  .ctrl {
+    width:clamp(44px,8vw,54px); height:clamp(44px,8vw,54px);
+    border-radius:50%; border:none;
+    background:rgba(255,255,255,0.14); color:#fff;
+    cursor:pointer; display:flex; align-items:center; justify-content:center;
+    -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+    transition: background .12s, transform .1s;
+  }
+  .ctrl:hover { background:rgba(255,255,255,0.28); }
+  .ctrl:active { transform: scale(0.92); }
+  .ctrl:disabled { opacity:.32; cursor:default; }
+  .ctrl svg { width:50%; height:50%; }
+  #page-ind {
+    color:#fff; font-size:clamp(15px,3vw,19px); font-weight:600;
+    min-width:clamp(72px,14vw,104px); text-align:center;
+    font-variant-numeric: tabular-nums; letter-spacing:0.02em;
+  }
+
+  @media (max-width:640px) {
+    #canvas-wrap { padding:8px; }
+    #controls { gap:6px; padding:10px 8px calc(12px + env(safe-area-inset-bottom)); }
+  }
+</style>
+</head>
+<body>
+
+<!-- LOADING -->
+<div id="loading"><div class="spinner"></div></div>
+
+<!-- READY: one fullscreen button -->
+<div id="ready">
+  <button id="fs-btn" type="button" aria-label="Fullscreen">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M4 9V4h5"/><path d="M20 9V4h-5"/><path d="M4 15v5h5"/><path d="M20 15v5h-5"/>
+    </svg>
+  </button>
+</div>
+
+<!-- STAGE -->
+<div id="stage">
+  <button id="exit-btn" class="ctrl" type="button" aria-label="Exit">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M9 4v5H4"/><path d="M15 4v5h5"/><path d="M9 20v-5H4"/><path d="M15 20v-5h5"/>
+    </svg>
+  </button>
+
+  <div id="canvas-wrap"><canvas id="pdf-canvas"></canvas></div>
+
+  <div id="controls">
+    <button class="ctrl" id="btn-first" type="button" aria-label="First">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6 4h2.2v16H6z"/><path fill="currentColor" d="M20 4.2L11 12l9 7.8z"/></svg>
+    </button>
+    <button class="ctrl" id="btn-prev" type="button" aria-label="Previous">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M16 4.2L7 12l9 7.8z"/></svg>
+    </button>
+    <div id="page-ind">1 / 1</div>
+    <button class="ctrl" id="btn-next" type="button" aria-label="Next">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M8 4.2L17 12l-9 7.8z"/></svg>
+    </button>
+    <button class="ctrl" id="btn-last" type="button" aria-label="Last">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M15.8 4H18v16h-2.2z"/><path fill="currentColor" d="M4 4.2L13 12l-9 7.8z"/></svg>
+    </button>
+  </div>
+</div>
+
+<script src="lib/pdf.min.js"></script>
+<script>
+(function () {
+  "use strict";
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'lib/pdf.worker.min.js';
+
+  var PDF_URL = 'core.pdf';
+  var pdfDoc = null, numPages = 1, currentPage = 1;
+  var renderTask = null;
+
+  var loading   = document.getElementById('loading');
+  var ready     = document.getElementById('ready');
+  var stage     = document.getElementById('stage');
+  var canvasWrap= document.getElementById('canvas-wrap');
+  var vCanvas   = document.getElementById('pdf-canvas');
+  var vCtx      = vCanvas.getContext('2d');
+  var offCanvas = document.createElement('canvas');
+  var pageInd   = document.getElementById('page-ind');
+
+  /* ---------- load PDF ---------- */
+  pdfjsLib.getDocument(PDF_URL).promise.then(function (doc) {
+    pdfDoc = doc;
+    numPages = doc.numPages;
+    currentPage = 1;
+    pageInd.textContent = '1 / ' + numPages;
+    loading.classList.add('hide');
+    ready.classList.add('show');
+  }).catch(function () {
+    loading.classList.add('err');   // red spinner, no text
+  });
+
+  /* ---------- render (offscreen double-buffer → instant, no animation) ---------- */
+  function computeFit(page) {
+    var w = canvasWrap.clientWidth, h = canvasWrap.clientHeight;
+    if (w <= 0 || h <= 0) { w = window.innerWidth; h = window.innerHeight; }
+    var base = page.getViewport({ scale: 1 });
+    var scale = Math.min(w / base.width, h / base.height);
+    if (!isFinite(scale) || scale <= 0) scale = 1;
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    return { scale: scale, dpr: dpr };
+  }
+
+  function renderPage(n) {
+    if (!pdfDoc) return;
+    if (renderTask) { try { renderTask.cancel(); } catch (e) {} renderTask = null; }
+    currentPage = n;
+    pageInd.textContent = n + ' / ' + numPages;
+    updateNavButtons();
+
+    pdfDoc.getPage(n).then(function (page) {
+      if (currentPage !== n) return;            // superseded
+      var fit = computeFit(page);
+      var viewport = page.getViewport({ scale: fit.scale * fit.dpr });
+      offCanvas.width  = Math.floor(viewport.width);
+      offCanvas.height = Math.floor(viewport.height);
+      var octx = offCanvas.getContext('2d');
+      renderTask = page.render({ canvasContext: octx, viewport: viewport });
+      renderTask.promise.then(function () {
+        if (currentPage !== n) return;          // superseded
+        vCanvas.width  = offCanvas.width;
+        vCanvas.height = offCanvas.height;
+        vCanvas.style.width  = (offCanvas.width  / fit.dpr) + 'px';
+        vCanvas.style.height = (offCanvas.height / fit.dpr) + 'px';
+        vCtx.clearRect(0, 0, vCanvas.width, vCanvas.height);
+        vCtx.drawImage(offCanvas, 0, 0);        // instant swap, no transition
+        renderTask = null;
+      }).catch(function () { renderTask = null; });
+    });
+  }
+
+  function go(n)  { n = Math.max(1, Math.min(numPages, n|0)); if (n !== currentPage) renderPage(n); }
+  function next() { go(currentPage + 1); }
+  function prev() { go(currentPage - 1); }
+
+  function updateNavButtons() {
+    document.getElementById('btn-first').disabled = (currentPage <= 1);
+    document.getElementById('btn-prev').disabled  = (currentPage <= 1);
+    document.getElementById('btn-next').disabled  = (currentPage >= numPages);
+    document.getElementById('btn-last').disabled  = (currentPage >= numPages);
+  }
+
+  /* ---------- fullscreen + stage ---------- */
+  function isFS() {
+    return !!(document.fullscreenElement || document.webkitFullscreenElement ||
+              document.mozFullScreenElement || document.msFullscreenElement);
+  }
+  function requestFS() {
+    var el = document.documentElement;
+    var req = el.requestFullscreen || el.webkitRequestFullscreen ||
+              el.mozRequestFullScreen || el.msRequestFullscreen;
+    if (req) { try { var p = req.call(el); if (p && p.catch) p.catch(function(){}); } catch (e) {} }
+  }
+  function exitFS() {
+    var ex = document.exitFullscreen || document.webkitExitFullscreen ||
+             document.mozCancelFullScreen || document.msExitFullscreen;
+    if (ex) { try { ex.call(document); } catch (e) {} }
+  }
+
+  function startStage() {
+    loading.classList.add('hide');
+    ready.classList.remove('show');
+    stage.classList.add('show');
+    requestAnimationFrame(function () { requestAnimationFrame(renderPage.bind(null, currentPage)); });
+  }
+  function stopStage() {
+    stage.classList.remove('show');
+    ready.classList.add('show');
+  }
+
+  function enterPresent() {
+    requestFS();
+    startStage();   // also start immediately (fallback if FS unavailable)
+  }
+  function exitPresent() {
+    if (isFS()) exitFS();
+    stopStage();
+  }
+
+  function onFSChange() {
+    if (isFS()) { if (!stage.classList.contains('show')) startStage(); }
+    else { if (stage.classList.contains('show')) stopStage(); }
+  }
+  document.addEventListener('fullscreenchange', onFSChange);
+  document.addEventListener('webkitfullscreenchange', onFSChange);
+
+  /* ---------- buttons ---------- */
+  document.getElementById('fs-btn').addEventListener('click', enterPresent);
+  document.getElementById('exit-btn').addEventListener('click', exitPresent);
+  document.getElementById('btn-first').addEventListener('click', function () { go(1); });
+  document.getElementById('btn-prev').addEventListener('click', prev);
+  document.getElementById('btn-next').addEventListener('click', next);
+  document.getElementById('btn-last').addEventListener('click', function () { go(numPages); });
+
+  /* ---------- keyboard (presentation clicker / pen remote) ---------- */
+  document.addEventListener('keydown', function (e) {
+    if (stage.classList.contains('show')) {
+      switch (e.key) {
+        case 'ArrowRight': case 'PageDown': case ' ': case 'Enter':
+        case 'MediaTrackNext':
+          e.preventDefault(); next(); break;
+        case 'ArrowLeft': case 'PageUp': case 'MediaTrackPrevious':
+          e.preventDefault(); prev(); break;
+        case 'Home': e.preventDefault(); go(1); break;
+        case 'End': e.preventDefault(); go(numPages); break;
+        case 'f': case 'F':
+          e.preventDefault(); if (isFS()) exitFS(); else requestFS(); break;
+      }
+    } else if (ready.classList.contains('show')) {
+      if (e.key === 'Enter' || e.key === ' ' || e.key === 'f' || e.key === 'F') {
+        e.preventDefault(); enterPresent();
+      }
+    }
+  });
+
+  /* ---------- touch swipe ---------- */
+  var tsx = 0, tsy = 0;
+  canvasWrap.addEventListener('touchstart', function (e) {
+    var t = e.touches[0]; tsx = t.clientX; tsy = t.clientY;
+  }, { passive: true });
+  canvasWrap.addEventListener('touchend', function (e) {
+    var t = e.changedTouches[0];
+    var dx = t.clientX - tsx, dy = t.clientY - tsy;
+    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.4) {
+      if (dx < 0) next(); else prev();
+    }
+  }, { passive: true });
+
+  /* ---------- resize / orientation ---------- */
+  var rt;
+  function onResize() { clearTimeout(rt); rt = setTimeout(function () { if (stage.classList.contains('show')) renderPage(currentPage); }, 140); }
+  window.addEventListener('resize', onResize);
+  window.addEventListener('orientationchange', onResize);
+})();
+</script>
+</body>
+</html>
